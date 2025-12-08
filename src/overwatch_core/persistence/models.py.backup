@@ -2,36 +2,25 @@
 Database models for Overwatch.
 Uses SQLAlchemy ORM for PostgreSQL.
 """
-from __future__ import annotations
-
 from datetime import datetime
-from typing import Optional
-from enum import Enum as PyEnum  
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Text,
-    DateTime,
-    JSON,
-    Float,
-    Boolean,
-    ForeignKey,
-)
-from sqlalchemy import Enum as SQLEnum  # SQLAlchemy Enum
+from typing import Optional, List
+from enum import Enum as PyEnum
+
+from sqlalchemy import JSON, Boolean, DateTime
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, Float, Boolean, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
     """Base class for all models."""
+
     pass
 
 
-# -----------------------------
-# Enums
-# -----------------------------
 class ScanStatus(str, PyEnum):
     """Scan job status."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -41,6 +30,7 @@ class ScanStatus(str, PyEnum):
 
 class SeverityLevel(str, PyEnum):
     """Vulnerability severity levels."""
+
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
@@ -48,9 +38,6 @@ class SeverityLevel(str, PyEnum):
     INFO = "info"
 
 
-# -----------------------------
-# Target model
-# -----------------------------
 class Target(Base):
     """Target systems to be tested."""
 
@@ -74,14 +61,10 @@ class Target(Base):
 
     # Relationships
     scan_jobs: Mapped[list["ScanJob"]] = relationship(
-        back_populates="target",
-        cascade="all, delete-orphan",
+        back_populates="target", cascade="all, delete-orphan"
     )
 
 
-# -----------------------------
-# ScanJob model
-# -----------------------------
 class ScanJob(Base):
     """Individual scan jobs."""
 
@@ -93,9 +76,9 @@ class ScanJob(Base):
     # Job details
     scan_type: Mapped[str] = mapped_column(String(100))  # nmap, nuclei, sqli, etc.
     status: Mapped[ScanStatus] = mapped_column(
-        SQLEnum(ScanStatus, name="scanstatus"),  # SQLAlchemy Enum
-        default=ScanStatus.PENDING,
-        nullable=False,
+        SQLEnum(ScanStatus),
+        default=ScanStatus.PENDING,  
+        nullable=False
     )
 
     # Timing
@@ -110,18 +93,13 @@ class ScanJob(Base):
     # Relationships
     target: Mapped["Target"] = relationship(back_populates="scan_jobs")
     findings: Mapped[list["Finding"]] = relationship(
-        back_populates="scan_job",
-        cascade="all, delete-orphan",
+        back_populates="scan_job", cascade="all, delete-orphan"
     )
     ai_decisions: Mapped[list["AIDecision"]] = relationship(
-        back_populates="scan_job",
-        cascade="all, delete-orphan",
+        back_populates="scan_job", cascade="all, delete-orphan"
     )
 
 
-# -----------------------------
-# Finding model
-# -----------------------------
 class Finding(Base):
     """Security vulnerabilities discovered."""
 
@@ -142,10 +120,7 @@ class Finding(Base):
     parameter: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Severity & Confidence
-    severity: Mapped[SeverityLevel] = mapped_column(
-        SQLEnum(SeverityLevel, name="severitylevel"),
-        nullable=False,
-    )
+    severity: Mapped[SeverityLevel] = mapped_column(SQLSQLEnum(SeverityLevel))
     confidence: Mapped[float] = mapped_column(default=0.0)  # 0.0 to 1.0
 
     # Validation
@@ -168,9 +143,6 @@ class Finding(Base):
     scan_job: Mapped["ScanJob"] = relationship(back_populates="findings")
 
 
-# -----------------------------
-# AIDecision model
-# -----------------------------
 class AIDecision(Base):
     """Log of all AI agent decisions."""
 
@@ -193,7 +165,7 @@ class AIDecision(Base):
 
     # Confidence & Risk
     confidence: Mapped[float] = mapped_column(default=0.0)
-    risk_level: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    risk_level: Mapped[str] = mapped_column(String(50), nullable=True)
 
     # Approval tracking
     required_approval: Mapped[bool] = mapped_column(Boolean, default=False)
