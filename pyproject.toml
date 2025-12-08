@@ -20,6 +20,9 @@ python-dotenv = "^1.0.0"
 click = "^8.1.7"
 aiofiles = "^23.2.1"
 httpx = "^0.26.0"
+celery = "^5.6.0"
+redis = "^7.1.0"
+flower = "^2.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.4"
