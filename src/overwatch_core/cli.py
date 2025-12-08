@@ -1,9 +1,11 @@
 # src/overwatch_core/cli.py
 import argparse
-from overwatch_core.config import settings
-from overwatch_core.scanners.nmap_runner import run_nmap_scan
-from overwatch_core.scanners.nmap_parser import parse_nmap_xml
+
 from overwatch_core.brain.fake_llm_client import FakeLLMClient
+from overwatch_core.config import settings
+from overwatch_core.scanners.nmap_parser import parse_nmap_xml
+from overwatch_core.scanners.nmap_runner import run_nmap_scan
+
 
 def main():
     parser = argparse.ArgumentParser(prog="ow", description="Overwatch CLI")
@@ -32,6 +34,7 @@ def main():
         print(suggestions)
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()

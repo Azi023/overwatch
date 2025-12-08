@@ -1,6 +1,7 @@
 # src/overwatch_core/brain/fake_llm_client.py
 from typing import Dict, List
 
+
 class FakeLLMClient:
     """
     Placeholder 'brain' that uses simple rules instead of a real LLM.
@@ -26,11 +27,17 @@ class FakeLLMClient:
 
         if ssh_ports:
             lines.append("- SSH detected:")
-            lines.append("  - Consider version-based vulns, weak auth, or pivoting after initial foothold.")
+            lines.append(
+                "  - Consider version-based vulns, weak auth, or pivoting after initial foothold."
+            )
 
         if not http_ports and not ssh_ports:
-            lines.append("- No typical web or SSH ports found; focus on any unusual ports and service banners.")
+            lines.append(
+                "- No typical web or SSH ports found; focus on any unusual ports and service banners."
+            )
 
-        lines.append("- Save these results into your notes and think about chaining 'low' misconfigs later (e.g. info leak + auth bypass).")
+        lines.append(
+            "- Save these results into your notes and think about chaining 'low' misconfigs later (e.g. info leak + auth bypass)."
+        )
 
         return "\n".join(lines)
