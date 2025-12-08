@@ -2,6 +2,7 @@
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+
 def parse_nmap_xml(xml_path: str) -> dict:
     xml_file = Path(xml_path)
     tree = ET.parse(xml_file)
@@ -13,7 +14,9 @@ def parse_nmap_xml(xml_path: str) -> dict:
         return {"target": xml_file.parent.name, "ports": []}
 
     address_elem = host_elem.find("address")
-    target_ip = address_elem.get("addr") if address_elem is not None else xml_file.parent.name
+    target_ip = (
+        address_elem.get("addr") if address_elem is not None else xml_file.parent.name
+    )
 
     ports_summary = []
     ports_elem = host_elem.find("ports")
@@ -30,13 +33,15 @@ def parse_nmap_xml(xml_path: str) -> dict:
             else:
                 service_name = product = version = None
 
-            ports_summary.append({
-                "port": port_id,
-                "protocol": proto,
-                "service": service_name,
-                "product": product,
-                "version": version,
-            })
+            ports_summary.append(
+                {
+                    "port": port_id,
+                    "protocol": proto,
+                    "service": service_name,
+                    "product": product,
+                    "version": version,
+                }
+            )
 
     return {
         "target": target_ip,
