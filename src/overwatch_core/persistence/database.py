@@ -65,3 +65,22 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             raise
         finally:
             await session.close()
+
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Dependency to get database session in FastAPI endpoints.
+
+    Usage in FastAPI:
+        @app.get("/items")
+        async def get_items(session: AsyncSession = Depends(get_session)):
+            ...
+    """
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()

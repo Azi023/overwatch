@@ -76,7 +76,9 @@ class ScanJob(Base):
     # Job details
     scan_type: Mapped[str] = mapped_column(String(100))  # nmap, nuclei, sqli, etc.
     status: Mapped[ScanStatus] = mapped_column(
-        SQLEnum(ScanStatus), default=ScanStatus.PENDING
+        Enum(ScanStatus),
+        default=ScanStatus.PENDING,  
+        nullable=False
     )
 
     # Timing
