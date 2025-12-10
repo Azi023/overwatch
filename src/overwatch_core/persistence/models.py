@@ -118,6 +118,11 @@ class ScanJob(Base):
         cascade="all, delete-orphan",
     )
 
+    def __init__(self, **kwargs):
+        """Initialize with default status if not provided."""
+        if 'status' not in kwargs:
+            kwargs['status'] = ScanStatus.PENDING
+        super().__init__(**kwargs)
 
 # -----------------------------
 # Finding model

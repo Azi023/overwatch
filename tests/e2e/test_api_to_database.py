@@ -5,7 +5,7 @@ import pytest
 from httpx import AsyncClient
 from src.overwatch_core.api.main import app
 
-@pytest.mark.skip(reason="Scans endpoint not yet implemented")
+@pytest.mark.skip(reason="E2E test - run manually")
 @pytest.mark.asyncio
 async def test_create_target_and_scan():
     """E2E test: Create target via API and run scan."""

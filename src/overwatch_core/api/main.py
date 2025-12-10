@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.overwatch_core.api.routes import targets
+from src.overwatch_core.api.routes import targets, scans
 from src.overwatch_core.persistence.database import init_db, engine
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,7 @@ app.add_middleware(
 
 # Include router (add this after CORS middleware, before @app.get("/"))
 app.include_router(targets.router, prefix="/api/v1/targets", tags=["Targets"])
+app.include_router(scans.router, prefix="/api/v1/scans", tags=["Scans"])
 
 @app.get("/")
 async def root():
