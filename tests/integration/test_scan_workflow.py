@@ -43,7 +43,7 @@ async def test_complete_scan_workflow(test_db):
 
         # 3. Run scan
         scanner = NmapScanner()
-        result = await scanner.scan("127.0.0.1", {"profile": "quick", "ports": "80,443"})
+        result = await scanner.scan("127.0.0.1", {"profile": "balanced"})
 
         # 4. Update scan job
         scan_job.status = ScanStatus.COMPLETED if result.success else ScanStatus.FAILED
