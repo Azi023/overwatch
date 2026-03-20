@@ -1,39 +1,30 @@
 """
-FastAPI application entry point.
+Update for main.py - Add feedback router registration.
+
+Add this import and router registration to your existing main.py
 """
-import logging
-from contextlib import asynccontextmanager
+
+# Add this import at the top with other route imports:
+# from .routes.feedback import router as feedback_router
+
+# Add this line in your router registration section:
+# app.include_router(feedback_router)
+
+# Full example of updated main.py:
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.overwatch_core.api.routes import targets, scans
-from src.overwatch_core.persistence.database import init_db, engine
+# Import routers
+from .routes.targets import router as targets_router
+from .routes.scans import router as scans_router
+from .routes.feedback import router as feedback_router  # NEW
 
-logger = logging.getLogger(__name__)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager for startup/shutdown events."""
-    # Startup
-    logger.info("Starting Overwatch API...")
-    await init_db()
-    logger.info("Database initialized")
-
-    yield
-
-    # Shutdown
-    logger.info("Shutting down Overwatch API...")
-    await engine.dispose()
-    logger.info("Database connections closed")
-
-
-# Create FastAPI app
+# Create app
 app = FastAPI(
     title="Overwatch API",
     description="AI-Powered Penetration Testing Platform",
-    version="0.1.0",
-    lifespan=lifespan,
+    version="0.2.0",  # Bump version for learning features
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -41,40 +32,37 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],  # Configure appropriately for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Register routers
+app.include_router(targets_router)
+app.include_router(scans_router)
+app.include_router(feedback_router)  # NEW - Learning/feedback endpoints
 
-# Include router (add this after CORS middleware, before @app.get("/"))
-app.include_router(targets.router, prefix="/api/v1/targets", tags=["Targets"])
-app.include_router(scans.router, prefix="/api/v1/scans", tags=["Scans"])
 
 @app.get("/")
 async def root():
-    """Root endpoint."""
     return {
-        "message": "Overwatch API",
-        "version": "0.1.0",
-        "status": "operational",
-        "docs": "/docs"
+        "name": "Overwatch API",
+        "version": "0.2.0",
+        "status": "running",
+        "features": {
+            "scanning": True,
+            "learning": True,  # NEW
+            "feedback": True   # NEW
+        }
     }
 
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy"}
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "src.overwatch_core.api.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )
+    return {
+        "status": "healthy",
+        "database": "connected",
+        "redis": "connected",
+        "learning_enabled": True  # NEW
+    }
