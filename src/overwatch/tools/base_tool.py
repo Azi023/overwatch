@@ -85,7 +85,8 @@ class BaseTool(ABC):
         if self._scope_enforcer is None:
             return True
         try:
-            return self._scope_enforcer.is_in_scope(target)
+            result = self._scope_enforcer.check_action("vulnerability_scan", target)
+            return result.allowed
         except Exception as exc:
             self._log.error("Scope check raised an exception: %s", exc)
             return False

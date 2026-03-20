@@ -53,8 +53,8 @@ async def _run_engagement(engagement_id: int) -> None:
     """
     Background task: launch the engagement coordinator.
 
-    Marks the engagement as RUNNING and then defers to the coordinator
-    once it is implemented. Currently logs a placeholder.
+    Marks the engagement as RUNNING, builds a Coordinator from the engagement's
+    scope config and budgets, then runs the full autonomous engagement loop.
     """
     async with AsyncSessionLocal() as session:
         try:
@@ -68,18 +68,68 @@ async def _run_engagement(engagement_id: int) -> None:
             await session.commit()
             logger.info("Engagement %d status → RUNNING", engagement_id)
 
-            # TODO: instantiate and call coordinator once implemented
-            # from ...coordinator.coordinator import Coordinator
-            # coordinator = Coordinator(engagement_id=engagement_id, session_factory=AsyncSessionLocal)
-            # await coordinator.run()
+            # Build coordinator dependencies
+            from ...coordinator.coordinator import Coordinator
+            from ...coordinator.scope_enforcer import ScopeEnforcer
 
-        except Exception as exc:
-            logger.exception("Engagement %d failed to start: %s", engagement_id, exc)
+            scope_config = engagement.scope_config or {}
+            scope_enforcer = ScopeEnforcer(scope_config)
+
+            # ClaudeClient requires ANTHROPIC_API_KEY — skip coordinator if not set
             try:
+                from ...reasoning.claude_client import ClaudeClient
+                claude_client = ClaudeClient()
+            except (ValueError, ImportError) as exc:
+                logger.warning(
+                    "Engagement %d: ClaudeClient unavailable (%s) — engagement will not run autonomously.",
+                    engagement_id,
+                    exc,
+                )
                 engagement = await session.get(Engagement, engagement_id)
                 if engagement:
                     engagement.status = EngagementStatus.FAILED
                     await session.commit()
+                return
+
+            coordinator = Coordinator(
+                engagement_id=engagement_id,
+                session=session,
+                claude_client=claude_client,
+                scope_enforcer=scope_enforcer,
+            )
+
+            # Seed coordinator with target info from the engagement's target
+            target = await session.get(Target, engagement.target_id)
+            if target is not None:
+                target_info: Dict[str, Any] = {
+                    "ip": target.ip_address or "",
+                    "hostname": target.name or "",
+                    "url": target.url or "",
+                    "ports": target.allowed_ports or [],
+                    "services": [],
+                    "properties": target.scope_rules or {},
+                }
+                await coordinator.initialize(target_info)
+
+            await coordinator.run()
+
+            # Mark complete when run() returns
+            engagement = await session.get(Engagement, engagement_id)
+            if engagement and engagement.status == EngagementStatus.RUNNING:
+                engagement.status = EngagementStatus.COMPLETED
+                engagement.completed_at = datetime.utcnow()
+                await session.commit()
+                logger.info("Engagement %d completed successfully", engagement_id)
+
+        except Exception as exc:
+            logger.exception("Engagement %d failed to start: %s", engagement_id, exc)
+            try:
+                async with AsyncSessionLocal() as err_session:
+                    engagement = await err_session.get(Engagement, engagement_id)
+                    if engagement:
+                        engagement.status = EngagementStatus.FAILED
+                        engagement.completed_at = datetime.utcnow()
+                        await err_session.commit()
             except Exception:
                 pass
 
