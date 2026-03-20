@@ -234,7 +234,7 @@ class BaseAgent(ABC):
                         status = "stopped"
                         break
 
-                    if not self._budget_ok():
+                    if not await self._budget_ok():
                         logger.warning(
                             "Agent %s: budget exhausted, stopping.", self.agent_id
                         )
@@ -290,7 +290,8 @@ class BaseAgent(ABC):
         if self.scope_enforcer is None:
             return True
         try:
-            return self.scope_enforcer.is_in_scope(target)
+            result = self.scope_enforcer.check_action("vulnerability_scan", target)
+            return result.allowed
         except Exception as exc:
             logger.warning(
                 "Agent %s: scope check error for '%s': %s",
@@ -380,14 +381,14 @@ class BaseAgent(ABC):
         for disc in evidence_discoveries:
             self.add_discovery(disc)
 
-    def _budget_ok(self) -> bool:
+    async def _budget_ok(self) -> bool:
         """Return True if the budget manager allows continued operation."""
         if self.budget_manager is None:
             return True
         try:
-            return self.budget_manager.has_budget(
-                tokens_used=self._tokens_used,
-                cost_usd=self._cost_usd,
+            return await self.budget_manager.can_proceed(
+                estimated_tokens=0,
+                estimated_cost=0.0,
             )
         except Exception:
             return True  # fail open to avoid blocking agents unnecessarily

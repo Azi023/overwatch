@@ -499,6 +499,140 @@ class Coordinator:
                     confidence=float(finding.get("confidence", 0.5)),
                 )
 
+    # ── Main engagement loop ───────────────────────────────────────────────
+
+    async def run(self) -> None:
+        """
+        Execute the full engagement lifecycle.
+
+        Orchestration loop:
+          1. plan_strategy()       → initial AgentTask list
+          2. spawn agents in parallel via AgentFactory
+          3. process_agent_result() → follow-up AgentTask list
+          4. Repeat until no more tasks, budget exhausted, or kill switch active
+
+        Requires ANTHROPIC_API_KEY to be set in the environment.
+        """
+        from ..agents.factory import AgentFactory
+        from ..coordinator.budget_manager import BudgetManager
+        from ..memory.engagement_memory import EngagementMemory
+        from ..memory.knowledge_base import KnowledgeBase
+        from ..persistence.database import AsyncSessionLocal
+
+        engagement = await self._session.get(Engagement, self._engagement_id)
+        if engagement is None:
+            logger.error("Coordinator.run: engagement %d not found", self._engagement_id)
+            return
+
+        budget_manager = BudgetManager(
+            engagement_id=self._engagement_id,
+            session=self._session,
+            token_budget=engagement.token_budget,
+            time_budget_seconds=engagement.time_budget_seconds,
+            cost_budget_usd=engagement.cost_budget_usd,
+        )
+
+        engagement_memory = EngagementMemory(
+            engagement_id=self._engagement_id,
+            session_factory=AsyncSessionLocal,
+        )
+        knowledge_base = KnowledgeBase()
+
+        factory = AgentFactory(
+            engagement_id=self._engagement_id,
+            session=self._session,
+            claude_client=self._claude,
+            scope_enforcer=self._scope,
+            budget_manager=budget_manager,
+            engagement_memory=engagement_memory,
+            knowledge_base=knowledge_base,
+        )
+
+        MAX_ITERATIONS = 10
+        iteration = 0
+
+        try:
+            pending_tasks = await self.plan_strategy()
+        except Exception as exc:
+            logger.exception("Coordinator.run: plan_strategy failed: %s", exc)
+            return
+
+        seen_objectives: set = set()
+
+        while pending_tasks and iteration < MAX_ITERATIONS:
+            if self._kill_switch_active:
+                logger.info("Coordinator.run: kill switch active — halting engagement %d", self._engagement_id)
+                break
+
+            if not await budget_manager.can_proceed():
+                logger.info("Coordinator.run: budget exhausted — halting engagement %d", self._engagement_id)
+                break
+
+            iteration += 1
+            logger.info(
+                "Coordinator iteration %d/%d: %d tasks for engagement=%d",
+                iteration,
+                MAX_ITERATIONS,
+                len(pending_tasks),
+                self._engagement_id,
+            )
+
+            agent_task_specs = [
+                {
+                    "agent_type": task.agent_type,
+                    "objective": task.objective,
+                    "scope_subset": task.scope_subset,
+                }
+                for task in pending_tasks
+            ]
+
+            try:
+                results = await factory.spawn_parallel(agent_task_specs)
+            except Exception as exc:
+                logger.exception("Coordinator.run: spawn_parallel failed: %s", exc)
+                break
+
+            next_tasks: List[AgentTask] = []
+            for result in results:
+                try:
+                    follow_ups = await self.process_agent_result(
+                        agent_run_id=result.agent_id,
+                        result={
+                            "summary": (
+                                f"Agent {result.agent_type} finished in {result.loop_count} loops "
+                                f"with {len(result.findings)} finding(s)"
+                            ),
+                            "findings": result.findings,
+                            "discoveries": result.discoveries,
+                            "hosts": [],
+                            "web_endpoints": [],
+                            "technologies": [],
+                        },
+                    )
+                    next_tasks.extend(follow_ups)
+                except Exception as exc:
+                    logger.warning(
+                        "Coordinator.run: process_agent_result failed for agent %s: %s",
+                        result.agent_id,
+                        exc,
+                    )
+
+            # Deduplicate follow-up tasks by (type, objective prefix)
+            unique_next: List[AgentTask] = []
+            for task in next_tasks:
+                key = (task.agent_type, task.objective[:60])
+                if key not in seen_objectives:
+                    seen_objectives.add(key)
+                    unique_next.append(task)
+
+            pending_tasks = unique_next
+
+        logger.info(
+            "Coordinator.run: engagement %d finished after %d iteration(s)",
+            self._engagement_id,
+            iteration,
+        )
+
     @property
     def target_map(self) -> TargetMap:
         """Read-only access to the current TargetMap snapshot."""

@@ -10,10 +10,15 @@ from sqlalchemy.pool import NullPool
 
 from .models import Base
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://overwatch:overwatch_pass@localhost:5432/overwatch_db",
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    import warnings
+    DATABASE_URL = "postgresql://overwatch:overwatch_pass@localhost:5432/overwatch_db"
+    warnings.warn(
+        "DATABASE_URL is not set — using default development credentials. "
+        "Set the DATABASE_URL environment variable in production.",
+        stacklevel=1,
+    )
 
 if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
