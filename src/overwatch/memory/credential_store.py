@@ -100,10 +100,8 @@ class CredentialStore:
             await session.commit()
 
         logger.info(
-            "CredentialStore: stored credential id=%d service='%s' user='%s' type='%s'",
+            "CredentialStore: stored credential id=%d type='%s'",
             credential_id,
-            service,
-            username,
             cred_type,
         )
         return credential_id

@@ -90,6 +90,10 @@ class NucleiTool(BaseTool):
 
         if templates:
             for tmpl in templates:
+                # Reject path traversal attempts in template paths
+                if ".." in tmpl or tmpl.startswith("/"):
+                    logger.warning("Rejected suspicious template path: %r", tmpl)
+                    continue
                 cmd.extend(["-t", tmpl])
 
         if tags:

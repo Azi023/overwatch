@@ -48,11 +48,20 @@ class EvidencePackager:
                 finding_json = json.dumps(finding, indent=2, default=str)
                 zf.writestr(f"findings/finding_{fid}.json", finding_json)
 
-                # Include any artifact files
+                # Include any artifact files (skip symlinks to prevent traversal)
                 artifact_dir = self.base_dir / f"engagement_{engagement_id}" / f"finding_{fid}"
                 if artifact_dir.exists():
                     for artifact in artifact_dir.rglob("*"):
+                        if artifact.is_symlink():
+                            logger.warning("Skipping symlink in evidence: %s", artifact)
+                            continue
                         if artifact.is_file():
+                            # Ensure artifact is within the expected directory
+                            try:
+                                artifact.resolve().relative_to(artifact_dir.resolve())
+                            except ValueError:
+                                logger.warning("Skipping out-of-directory artifact: %s", artifact)
+                                continue
                             arcname = f"artifacts/finding_{fid}/{artifact.relative_to(artifact_dir)}"
                             zf.write(artifact, arcname)
 

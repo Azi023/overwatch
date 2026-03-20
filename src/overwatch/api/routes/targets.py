@@ -47,6 +47,7 @@ async def list_targets(
     session: AsyncSession = Depends(get_session),
 ) -> List[TargetResponse]:
     """List all targets with pagination."""
+    limit = min(limit, 500)
     result = await session.execute(
         select(Target).order_by(Target.id.desc()).offset(skip).limit(limit)
     )
@@ -97,5 +98,6 @@ async def delete_target(
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target not found")
     await session.delete(target)
+    await session.flush()
     logger.info("Deleted target id=%d", target_id)
     return {"deleted": target_id}
