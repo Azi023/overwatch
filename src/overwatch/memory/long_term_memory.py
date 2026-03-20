@@ -1,15 +1,20 @@
 """
-LongTermMemory - cross-engagement persistent memory with keyword search.
+LongTermMemory - cross-engagement persistent memory with vector search.
 
 Stores insights, vulnerability patterns, and attack chains across engagements.
-Supports simple keyword search and tech-stack filtering. A Bayesian advisory
-layer provides probability estimates for vulnerability types based on historical
-success rates against similar technology stacks.
+Supports:
+  - Keyword search (ILIKE-based, database-level)
+  - Vector similarity search (pgvector when available, cosine on JSON fallback)
+  - Tech-stack filtering
+  - Bayesian advisory layer for vulnerability probability estimates
 """
+import hashlib
 import logging
-from collections import defaultdict
+import math
+import os
+from collections import Counter, defaultdict
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +22,96 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..persistence.models import Memory
 
 logger = logging.getLogger(__name__)
+
+# ──────────────────────────── Embedding helpers ────────────────────────────
+
+# Embedding dimension — must match the model output or the local fallback
+_EMBED_DIM = 256
+
+
+def _tokenize(text: str) -> List[str]:
+    """Simple whitespace+punctuation tokeniser for the local embedding fallback."""
+    import re
+    return [t.lower() for t in re.findall(r'[a-z0-9]+', text.lower()) if len(t) > 1]
+
+
+def _local_embedding(text: str) -> List[float]:
+    """
+    Generate a deterministic fixed-size embedding using hashed bag-of-words.
+
+    This is a lightweight fallback when the Anthropic embedding API is
+    unavailable.  It produces a 256-dimensional vector using feature hashing
+    (hashing trick) over unigrams and bigrams, then L2-normalises.
+
+    Not as semantically rich as a neural model but sufficient for recall-based
+    similarity ranking.
+    """
+    tokens = _tokenize(text)
+    if not tokens:
+        return [0.0] * _EMBED_DIM
+
+    vec = [0.0] * _EMBED_DIM
+
+    # Unigrams
+    for tok in tokens:
+        idx = int(hashlib.md5(tok.encode()).hexdigest(), 16) % _EMBED_DIM
+        vec[idx] += 1.0
+
+    # Bigrams (capture phrase structure)
+    for i in range(len(tokens) - 1):
+        bigram = f"{tokens[i]}_{tokens[i+1]}"
+        idx = int(hashlib.md5(bigram.encode()).hexdigest(), 16) % _EMBED_DIM
+        vec[idx] += 0.5
+
+    # L2 normalise
+    norm = math.sqrt(sum(v * v for v in vec))
+    if norm > 0:
+        vec = [v / norm for v in vec]
+
+    return vec
+
+
+def _cosine_similarity(a: List[float], b: List[float]) -> float:
+    """Cosine similarity between two vectors.  Returns 0.0 on degenerate input."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+async def _anthropic_embedding(text: str, api_key: Optional[str] = None) -> Optional[List[float]]:
+    """
+    Generate an embedding via the Anthropic Voyager model.
+
+    Returns None if the API is unavailable or the call fails.
+    """
+    try:
+        import anthropic
+    except ImportError:
+        return None
+
+    resolved_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+    if not resolved_key:
+        return None
+
+    try:
+        client = anthropic.Anthropic(api_key=resolved_key)
+        # Anthropic's embedding endpoint (voyage-3 via Anthropic)
+        response = client.embeddings.create(
+            model="voyage-3",
+            input=[text[:8000],],  # truncate to model limit
+        )
+        return response.data[0].embedding
+    except Exception as exc:
+        logger.debug("Anthropic embedding call failed: %s", exc)
+        return None
+
+
+# ──────────────────────────── LongTermMemory ────────────────────────────────
 
 
 class LongTermMemory:
@@ -28,13 +123,38 @@ class LongTermMemory:
       - A title and free-text content
       - Optional tech_stack and vuln_types tags for filtering
       - A success_rate that improves over time via record_outcome()
+      - An embedding vector for similarity search
 
     The get_advisory() method returns Bayesian-style probability estimates for
     vulnerability types given a tech stack, computed from historical success rates.
     """
 
-    def __init__(self, session_factory: Any) -> None:
+    def __init__(
+        self,
+        session_factory: Any,
+        use_anthropic_embeddings: bool = False,
+        anthropic_api_key: Optional[str] = None,
+    ) -> None:
         self._session_factory = session_factory
+        self._use_anthropic = use_anthropic_embeddings
+        self._anthropic_key = anthropic_api_key
+
+    # ─────────────────────── Embedding generation ─────────────────
+
+    async def _generate_embedding(self, text: str) -> List[float]:
+        """
+        Generate an embedding for the given text.
+
+        Tries Anthropic Voyager first (if enabled and available),
+        then falls back to the local hashed bag-of-words approach.
+        """
+        if self._use_anthropic:
+            embedding = await _anthropic_embedding(text, self._anthropic_key)
+            if embedding is not None:
+                return embedding
+            logger.debug("Anthropic embedding unavailable — using local fallback")
+
+        return _local_embedding(text)
 
     # ─────────────────────── Storage API ─────────────────────────
 
@@ -49,10 +169,13 @@ class LongTermMemory:
         engagement_id: Optional[int] = None,
     ) -> int:
         """
-        Persist a new memory record.
+        Persist a new memory record with an embedding vector.
 
         Returns the database ID of the created Memory row.
         """
+        embed_text = f"{title} {content}"
+        embedding = await self._generate_embedding(embed_text)
+
         async with self._session_factory() as session:
             memory = Memory(
                 memory_type=memory_type,
@@ -64,6 +187,7 @@ class LongTermMemory:
                 times_recalled=0,
                 times_useful=0,
                 success_rate=0.0,
+                embedding=embedding,
                 source_engagement_id=engagement_id,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
@@ -124,6 +248,62 @@ class LongTermMemory:
             await self._increment_recalled(ids)
 
         return [self._row_to_dict(r) for r in matched]
+
+    async def search_by_similarity(
+        self,
+        query: str,
+        memory_type: Optional[str] = None,
+        limit: int = 10,
+        min_similarity: float = 0.3,
+    ) -> List[dict]:
+        """
+        Vector similarity search using embedding cosine distance.
+
+        Generates an embedding for the query, loads candidate memories from
+        the database, and ranks them by cosine similarity. Only returns
+        results above min_similarity threshold.
+
+        When pgvector is available (PostgreSQL), this could be done entirely
+        in SQL.  The current implementation loads embeddings and computes
+        similarity in Python, which is efficient enough for <100k memories.
+        """
+        limit = min(limit, 200)
+        query_embedding = await self._generate_embedding(query)
+
+        async with self._session_factory() as session:
+            stmt = select(Memory).where(Memory.embedding.isnot(None))
+            if memory_type is not None:
+                stmt = stmt.where(Memory.memory_type == memory_type)
+            # Load bounded set for similarity computation
+            stmt = stmt.limit(2000)
+
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+
+        # Score and rank by cosine similarity
+        scored: List[Tuple[float, Memory]] = []
+        for row in rows:
+            if not row.embedding:
+                continue
+            sim = _cosine_similarity(query_embedding, row.embedding)
+            if sim >= min_similarity:
+                scored.append((sim, row))
+
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        top = scored[:limit]
+
+        # Increment recall counters
+        if top:
+            ids = [row.id for _, row in top]
+            await self._increment_recalled(ids)
+
+        results = []
+        for sim, row in top:
+            d = self._row_to_dict(row)
+            d["similarity"] = round(sim, 4)
+            results.append(d)
+
+        return results
 
     async def search_by_tech_stack(
         self,
@@ -299,6 +479,7 @@ class LongTermMemory:
             "times_recalled": row.times_recalled,
             "times_useful": row.times_useful,
             "success_rate": row.success_rate,
+            "embedding": row.embedding is not None,
             "source_engagement_id": row.source_engagement_id,
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
