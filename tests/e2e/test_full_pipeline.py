@@ -74,9 +74,11 @@ async def test_client(test_session_factory):
 
     Patches:
     - get_session → yields session from test_session_factory
-    - AsyncSessionLocal → test_session_factory (for background tasks)
+    - _get_session_factory → returns test_session_factory
+    - _async_session_local → test_session_factory
     - init_db → no-op (schema already created by test_engine fixture)
     """
+    import src.overwatch.persistence.database as db_mod
     from src.overwatch.api.main import app
     from src.overwatch.persistence.database import get_session
 
@@ -93,14 +95,20 @@ async def test_client(test_session_factory):
 
     app.dependency_overrides[get_session] = override_get_session
 
+    # Override the lazy singleton so background tasks and internal code
+    # use the test session factory instead of creating a real PG engine.
+    saved_factory = db_mod._async_session_local
+    db_mod._async_session_local = test_session_factory
+
     with (
-        patch("src.overwatch.persistence.database.AsyncSessionLocal", test_session_factory),
-        patch("src.overwatch.persistence.database.init_db", new=AsyncMock()),
+        patch.object(db_mod, "_get_session_factory", return_value=test_session_factory),
+        patch.object(db_mod, "init_db", new=AsyncMock()),
     ):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
 
+    db_mod._async_session_local = saved_factory
     app.dependency_overrides.clear()
 
 
