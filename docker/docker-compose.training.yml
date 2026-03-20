@@ -1,0 +1,88 @@
+---
+# Training arena: known-vulnerable targets for agent proficiency testing.
+# Usage: docker compose -f docker-compose.training.yml up -d
+#
+# DVWA        → http://localhost:8181  (admin / password)
+# Juice Shop  → http://localhost:8182
+# WebGoat     → http://localhost:8183/WebGoat
+#
+# WARNING: These containers contain intentional vulnerabilities.
+# Never expose them to public networks.
+# Run only in isolated lab environments or on localhost.
+
+services:
+  # ──────────────────────────── DVWA ────────────────────────────────────────
+  dvwa:
+    image: vulnerables/web-dvwa:latest
+    container_name: overwatch-training-dvwa
+    ports:
+      - "8181:80"
+    environment:
+      - MYSQL_ROOT_PASSWORD=dvwa
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost/login.php"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    networks:
+      - training_net
+    labels:
+      overwatch.training.target: "dvwa"
+      overwatch.training.url: "http://localhost:8181"
+      overwatch.training.credentials: "admin:password"
+      overwatch.training.description: "Damn Vulnerable Web Application — SQLi, XSS, CSRF, etc."
+
+  # ──────────────────────────── Juice Shop ──────────────────────────────────
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    container_name: overwatch-training-juiceshop
+    ports:
+      - "8182:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - training_net
+    labels:
+      overwatch.training.target: "juiceshop"
+      overwatch.training.url: "http://localhost:8182"
+      overwatch.training.description: "OWASP Juice Shop — modern JS app with 85+ challenges"
+
+  # ──────────────────────────── WebGoat ─────────────────────────────────────
+  webgoat:
+    image: webgoat/webgoat:latest
+    container_name: overwatch-training-webgoat
+    ports:
+      - "8183:8080"
+      - "9090:9090"
+    environment:
+      - WEBGOAT_PORT=8080
+      - WEBWOLF_PORT=9090
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/WebGoat/login"]
+      interval: 20s
+      timeout: 10s
+      retries: 8
+      start_period: 40s
+    networks:
+      - training_net
+    labels:
+      overwatch.training.target: "webgoat"
+      overwatch.training.url: "http://localhost:8183/WebGoat"
+      overwatch.training.description: "WebGoat — OWASP training app with guided lessons"
+
+networks:
+  training_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+    # Isolate training containers from production infrastructure
+    internal: false
