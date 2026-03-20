@@ -1,6 +1,6 @@
-
 # Python
 venv/
+.venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -9,6 +9,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# Test / coverage
 .pytest_cache/
 .coverage
 htmlcov/
@@ -24,57 +26,22 @@ htmlcov/
 *.swo
 *~
 
-# OS
+# OS / WSL artifacts
 .DS_Store
 Thumbs.db
+*.Zone.Identifier
+
+# Backup / temp files
+*.bak
 
 # Logs
 *.log
 logs/
 
-# Data
+# Data / runtime
 data/engagements/
 data/reports/
+data/overwatch.db
 
-# Alembic
-alembic/versions/*.pyc
-
-# Python
-venv/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.egg-info/
-dist/
-build/
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Environment
-.env
-.env.local
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-logs/
-
-# Data
-data/engagements/
-data/reports/
-
-# Alembic
+# Alembic compiled
 alembic/versions/*.pyc
