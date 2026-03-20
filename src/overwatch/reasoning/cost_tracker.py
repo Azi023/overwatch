@@ -136,8 +136,8 @@ class CostTracker:
         """
         engagement = await session.get(Engagement, engagement_id)
         if engagement is None:
-            logger.warning("check_budget: engagement %d not found — allowing.", engagement_id)
-            return True
+            logger.warning("check_budget: engagement %d not found — DENYING.", engagement_id)
+            return False
 
         budget = engagement.cost_budget_usd
         if budget is None:

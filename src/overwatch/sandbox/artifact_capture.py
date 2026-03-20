@@ -30,7 +30,7 @@ class ArtifactCapture:
             if engagement_id
             else self.base_dir / "general"
         )
-        self._engagement_dir.mkdir(parents=True, exist_ok=True)
+        self._engagement_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     def _finding_dir(self, finding_id: str) -> Path:
         d = self._engagement_dir / f"finding_{finding_id}"
@@ -94,7 +94,7 @@ class ArtifactCapture:
         path = self._finding_dir(finding_id) / f"poc_{ts}.{format}"
         path.write_text(poc_content)
         if format != "json":
-            path.chmod(0o755)
+            path.chmod(0o700)
         logger.debug("Captured PoC script: %s", path)
         return str(path)
 

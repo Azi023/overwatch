@@ -37,7 +37,15 @@ class ToolResult:
 
 # Characters that must never appear in a target string — they indicate
 # an attempted shell-injection attack.
-_INJECTION_CHARS: frozenset = frozenset("; & | ` $ ( ) < > \n \\".split())
+_INJECTION_CHARS: frozenset = frozenset(
+    "; & | ` $ ( ) < > \n \\ \" ' { } [ ] * ? ~ ! #".split()
+)
+
+# Whitelist regex: targets may only contain safe characters.
+# Allows: alphanumerics, dots, hyphens, colons, slashes, underscores, @, =, %,
+# commas (for port ranges), plus (IPv6).  Everything else is rejected.
+import re as _re
+_SAFE_TARGET_RE = _re.compile(r'^[a-zA-Z0-9._:/@=+%,\-]+$')
 
 
 class BaseTool(ABC):
@@ -95,6 +103,7 @@ class BaseTool(ABC):
         """
         Reject targets that contain shell-injection characters.
 
+        Uses both a blocklist AND a whitelist regex for defense-in-depth.
         Returns True when the target is safe to pass to a subprocess command.
         """
         if not target or not target.strip():
@@ -107,6 +116,13 @@ class BaseTool(ABC):
                     target,
                 )
                 return False
+        # Whitelist check: only allow known-safe characters
+        if not _SAFE_TARGET_RE.match(target):
+            self._log.warning(
+                "Target %r contains characters outside the safe whitelist",
+                target,
+            )
+            return False
         return True
 
     # ------------------------------------------------------------------

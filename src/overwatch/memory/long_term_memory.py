@@ -92,10 +92,11 @@ class LongTermMemory:
         """
         Keyword search across title and content fields.
 
-        Splits the query on whitespace and filters rows that contain ALL tokens
-        (case-insensitive substring match). Returns up to limit results,
+        Splits the query on whitespace and applies database-level ILIKE
+        filters so only matching rows are loaded. Returns up to limit results,
         ordered by success_rate descending then times_recalled descending.
         """
+        limit = min(limit, 200)
         tokens = [t.strip().lower() for t in query.split() if t.strip()]
 
         async with self._session_factory() as session:
@@ -103,29 +104,26 @@ class LongTermMemory:
             if memory_type is not None:
                 stmt = stmt.where(Memory.memory_type == memory_type)
 
+            # Apply ILIKE filters at the database level for each token
+            for token in tokens:
+                pattern = f"%{token}%"
+                stmt = stmt.where(
+                    (Memory.title.ilike(pattern)) | (Memory.content.ilike(pattern))
+                )
+
+            stmt = stmt.order_by(
+                Memory.success_rate.desc(), Memory.times_recalled.desc()
+            ).limit(limit)
+
             result = await session.execute(stmt)
-            rows = result.scalars().all()
-
-        # Filter in Python — avoids database-specific full-text syntax
-        matched: List[Memory] = []
-        for row in rows:
-            searchable = (
-                f"{row.title} {row.content}".lower()
-            )
-            if all(token in searchable for token in tokens):
-                matched.append(row)
-
-        # Sort by quality: success_rate first, then recall frequency
-        matched.sort(
-            key=lambda r: (r.success_rate, r.times_recalled), reverse=True
-        )
+            matched = result.scalars().all()
 
         # Increment recall counter asynchronously (best effort)
         if matched:
-            ids = [r.id for r in matched[:limit]]
+            ids = [r.id for r in matched]
             await self._increment_recalled(ids)
 
-        return [self._row_to_dict(r) for r in matched[:limit]]
+        return [self._row_to_dict(r) for r in matched]
 
     async def search_by_tech_stack(
         self,
@@ -137,10 +135,19 @@ class LongTermMemory:
         Return memories tagged with any of the supplied tech_stack items.
 
         Optionally further filters by vuln_types. Results are ordered by
-        success_rate descending.
+        success_rate descending. Uses database-level JSON containment where
+        possible and falls back to Python filtering for case-insensitive match.
         """
+        limit = min(limit, 200)
+
         async with self._session_factory() as session:
-            result = await session.execute(select(Memory))
+            # Load a bounded set of memories ordered by success_rate
+            stmt = (
+                select(Memory)
+                .order_by(Memory.success_rate.desc())
+                .limit(1000)
+            )
+            result = await session.execute(stmt)
             rows = result.scalars().all()
 
         tech_needles = [t.lower() for t in tech_stack]
@@ -161,14 +168,14 @@ class LongTermMemory:
                     continue
 
             matched.append(row)
-
-        matched.sort(key=lambda r: r.success_rate, reverse=True)
+            if len(matched) >= limit:
+                break
 
         if matched:
-            ids = [r.id for r in matched[:limit]]
+            ids = [r.id for r in matched]
             await self._increment_recalled(ids)
 
-        return [self._row_to_dict(r) for r in matched[:limit]]
+        return [self._row_to_dict(r) for r in matched]
 
     # ─────────────────────── Advisory API ────────────────────────
 

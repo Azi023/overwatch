@@ -174,6 +174,7 @@ async def list_engagements(
     session: AsyncSession = Depends(get_session),
 ) -> List[EngagementResponse]:
     """List engagements with pagination."""
+    limit = min(limit, 500)
     result = await session.execute(
         select(Engagement).order_by(Engagement.id.desc()).offset(skip).limit(limit)
     )
@@ -249,6 +250,7 @@ async def get_engagement_findings(
     session: AsyncSession = Depends(get_session),
 ) -> List[FindingResponse]:
     """Return all findings discovered in this engagement."""
+    limit = min(limit, 500)
     await _get_engagement_or_404(engagement_id, session)
 
     result = await session.execute(
