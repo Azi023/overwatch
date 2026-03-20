@@ -8,7 +8,10 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from src.overwatch_core.persistence.models import Base  # <-- our models
+try:
+    from src.overwatch.persistence.models import Base  # V2 package
+except ImportError:
+    from src.overwatch_core.persistence.models import Base  # fallback to V1
 
 
 config = context.config

@@ -1,0 +1,113 @@
+name: nmap
+description: >
+  Network Mapper — industry-standard open-source tool for network discovery and
+  security auditing. Nmap uses raw IP packets to determine hosts, services, OS
+  versions, and firewall/filter types on a network.
+category: discovery
+version_minimum: "7.80"
+
+use_cases:
+  - Host discovery (ping scan)
+  - Port scanning (TCP/UDP)
+  - Service and version detection
+  - OS fingerprinting
+  - Script-based vulnerability scanning (NSE)
+  - Network topology mapping
+  - Firewall/IDS evasion testing
+
+command_templates:
+  # Quick host discovery — no port scan
+  ping_sweep: "nmap -sn {target}"
+
+  # Fast scan: top 100 ports, no ping
+  fast_scan: "nmap -F -Pn --open {target}"
+
+  # Standard TCP SYN scan — top 1000 ports
+  standard_syn: "nmap -sS -Pn --open {target}"
+
+  # Full TCP port scan
+  full_tcp: "nmap -sS -p- -Pn --open {target}"
+
+  # Service and version detection
+  version_detect: "nmap -sV -sC -Pn -p {ports} {target}"
+
+  # Aggressive scan (OS, version, scripts, traceroute)
+  aggressive: "nmap -A -Pn -p {ports} {target}"
+
+  # UDP scan (requires root)
+  udp_scan: "nmap -sU -Pn --top-ports 200 {target}"
+
+  # NSE vulnerability scripts
+  vuln_scan: "nmap --script vuln -Pn -p {ports} {target}"
+
+  # Service-specific NSE scripts
+  http_scripts: "nmap --script http-title,http-methods,http-headers -p 80,443,8080,8443 {target}"
+  smb_scripts: "nmap --script smb-vuln-* -p 445 {target}"
+  ftp_scripts: "nmap --script ftp-anon,ftp-brute -p 21 {target}"
+
+  # Output to XML for parsing
+  xml_output: "nmap -oX {output_file} {flags} {target}"
+
+  # Stealth / IDS evasion
+  stealth_frag: "nmap -sS -f -Pn {target}"
+  decoy_scan: "nmap -sS -D RND:10 -Pn {target}"
+
+scan_profiles:
+  minimal:
+    description: Fast, non-intrusive recon. Good first pass.
+    flags: "-sS -F -Pn --open -T3"
+    expected_duration: "30s-2min"
+    invasiveness: passive
+
+  standard:
+    description: Version detection on common ports. Default for most engagements.
+    flags: "-sS -sV -sC -Pn --open -T3 -p-"
+    expected_duration: "2-10min"
+    invasiveness: active
+
+  comprehensive:
+    description: Full port scan with scripts and OS detection.
+    flags: "-sS -sV -sC -O -Pn --open -T4 -p-"
+    expected_duration: "10-30min"
+    invasiveness: active
+
+  aggressive:
+    description: All features enabled. Noisy — use only when stealth is not required.
+    flags: "-A -Pn -T5 -p-"
+    expected_duration: "5-15min"
+    invasiveness: invasive
+
+  udp:
+    description: UDP service discovery. Slow but finds non-TCP services.
+    flags: "-sU -Pn --top-ports 200 -T3"
+    expected_duration: "5-20min"
+    invasiveness: active
+
+output_format:
+  types:
+    - xml   # Recommended for programmatic parsing
+    - greppable  # -oG
+    - normal     # -oN
+    - json_via_nmap2json  # third-party converter
+
+  xml_fields:
+    host:
+      - address (ip, mac)
+      - status (up/down)
+      - hostnames
+      - ports
+        - portid
+        - protocol
+        - state
+        - service (name, product, version, extrainfo, ostype, cpe)
+        - scripts (id, output)
+      - os (osmatch: name, accuracy)
+      - uptime
+
+security_notes:
+  - Always run with explicit target scope — never scan without authorisation
+  - SYN scans (-sS) require root/Administrator privileges
+  - Aggressive timing (-T5) may trigger IDS/IPS alerts
+  - Some NSE scripts are intrusive — review before use
+  - Fragment scans (-f) may cause issues on unstable links
+  - Document all scans with timestamps for audit trail

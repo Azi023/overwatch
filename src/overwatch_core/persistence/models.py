@@ -21,6 +21,8 @@ from sqlalchemy import (
 from sqlalchemy import Enum as SQLEnum  # SQLAlchemy Enum
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
+from typing import Optional, List, Dict, Any
+
 
 class Base(DeclarativeBase):
     """Base class for all models."""
@@ -118,14 +120,16 @@ class ScanJob(Base):
         back_populates="scan_job",
         cascade="all, delete-orphan",
     )
+    observations: Mapped[list["ObservationModel"]] = relationship(
+        back_populates="scan_job",
+        cascade="all, delete-orphan",
+    )
 
     def __init__(self, **kwargs):
         """Initialize with default status if not provided."""
         if 'status' not in kwargs:
             kwargs['status'] = ScanStatus.PENDING
         super().__init__(**kwargs)
-
-observations = relationship("ObservationModel", back_populates="scan_job")
 
 # -----------------------------
 # Finding model
@@ -222,47 +226,151 @@ class AIDecision(Base):
 
 
 class ObservationModel(Base):
-    """Observation storage for learning."""
+    """
+    Stores scan observations for learning.
+    
+    Every scan creates observations. Each observation captures:
+    - What the scanner saw (raw_data)
+    - Numeric features for ML (features)
+    - What predictors thought (predictions)
+    - What actually was true (ground_truth)
+    """
     __tablename__ = "observations"
-
+    
     id: Mapped[str] = mapped_column(String(16), primary_key=True)
-    observation_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    target_id: Mapped[int] = mapped_column(ForeignKey("targets.id"), nullable=False)
-    scan_job_id: Mapped[int] = mapped_column(ForeignKey("scan_jobs.id"), nullable=False)
+    observation_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     
-    raw_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    features: Mapped[dict] = mapped_column(JSONB, nullable=False, default={})
-    context_ids: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String(16)), nullable=True, default=lambda: [])
-    predictions: Mapped[dict] = mapped_column(JSONB, nullable=False, default={})
+    # Links
+    target_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("targets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    scan_job_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("scan_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
     
-    ground_truth: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    # Observation content
+    raw_data: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
+    features: Mapped[Dict[str, float]] = mapped_column(JSON, nullable=False, default=dict)
+    context_ids: Mapped[List[str]] = mapped_column(JSON, nullable=True, default=list)
+    predictions: Mapped[Dict[str, float]] = mapped_column(JSON, nullable=False, default=dict)
+    
+    # Ground truth (filled via validation)
+    ground_truth: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     ground_truth_source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     ground_truth_timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     
     # Relationships
-    target = relationship("Target", back_populates="observations")
-    scan_job = relationship("ScanJob", back_populates="observations")
+    target: Mapped["Target"] = relationship(back_populates="observations")
+    scan_job: Mapped["ScanJob"] = relationship(back_populates="observations")
+    feedback: Mapped[List["FeedbackModel"]] = relationship(back_populates="observation")
 
+
+# -----------------------------
+# Feedback model
+# -----------------------------
 
 class FeedbackModel(Base):
-    """Human feedback on findings for learning."""
+    """
+    Stores human feedback for learning.
+    
+    This is how the system learns from human validation.
+    Every feedback creates ground truth for training.
+    """
     __tablename__ = "feedback"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    observation_id: Mapped[str] = mapped_column(String(16), ForeignKey("observations.id"), nullable=False)
-    finding_id: Mapped[Optional[int]] = mapped_column(ForeignKey("findings.id"), nullable=True)
     
-    feedback_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    feedback_value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     
-    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    source: Mapped[str] = mapped_column(String(50), nullable=False)
+    # Links to what was validated
+    observation_id: Mapped[Optional[str]] = mapped_column(
+        String(16), 
+        ForeignKey("observations.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True
+    )
+    finding_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("findings.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True
+    )
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    # Feedback details
+    feedback_type: Mapped[str] = mapped_column(
+        String(50), 
+        nullable=False,
+        index=True
+    )
+    feedback_value: Mapped[Dict[str, Any]] = mapped_column(
+        JSON, 
+        nullable=False,
+        default=dict
+    )
+    
+    # Metadata
+    source: Mapped[str] = mapped_column(
+        String(50), 
+        nullable=False,
+        default="api"
+    )
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer, 
+        nullable=True
+    )
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, 
+        nullable=False,
+        default=datetime.utcnow
+    )
     
     # Relationships
-    observation = relationship("ObservationModel")
-    finding = relationship("Finding")
+    observation: Mapped[Optional["ObservationModel"]] = relationship(
+        back_populates="feedback"
+    )
+
+# Update existing Finding model to add validation fields
+class FindingUpdates:
+    """
+    Add these fields to your existing Finding model.
+    """
+    # Validation status
+    validated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    validation_result: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    
+    # Link to observation that generated this finding
+    observation_id: Mapped[Optional[str]] = mapped_column(
+        String(16),
+        ForeignKey("observations.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+
+# Update Target model to add observations relationship
+class TargetUpdates:
+    """
+    Add this relationship to your existing Target model.
+    """
+    observations: Mapped[List["ObservationModel"]] = relationship(
+        back_populates="target",
+        cascade="all, delete-orphan"
+    )
+
+
+# Update ScanJob model to add observations relationship  
+class ScanJobUpdates:
+    """
+    Add this relationship to your existing ScanJob model.
+    """
+    observations: Mapped[List["ObservationModel"]] = relationship(
+        back_populates="scan_job",
+        cascade="all, delete-orphan"
+    )
