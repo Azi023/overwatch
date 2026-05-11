@@ -15,15 +15,11 @@ from .models import Base
 
 
 def _resolve_database_url() -> str:
-    """Resolve DATABASE_URL from environment with fallback."""
     url = os.getenv("DATABASE_URL")
     if not url:
-        import warnings
-        url = "postgresql://overwatch:REMOVED-DEV-PASSWORD@localhost:5432/overwatch_db"
-        warnings.warn(
-            "DATABASE_URL is not set — using default development credentials. "
-            "Set the DATABASE_URL environment variable in production.",
-            stacklevel=2,
+        raise RuntimeError(
+            "DATABASE_URL environment variable is required. "
+            "Example: export DATABASE_URL=postgresql://user:pass@localhost:5432/overwatch_db"
         )
     if url.startswith("postgresql://"):
         url = url.replace("postgresql://", "postgresql+asyncpg://", 1)

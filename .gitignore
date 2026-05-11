@@ -39,6 +39,7 @@ Thumbs.db
 logs/
 
 # Data / runtime
+data/.env*
 data/engagements/
 data/reports/
 data/overwatch.db

@@ -11,14 +11,17 @@ from sqlalchemy.pool import NullPool
 
 from .models import Base
 
-# Get database URL from environment
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://overwatch:REMOVED-DEV-PASSWORD@localhost:5432/overwatch_db"
+_raw_url = os.getenv("DATABASE_URL")
+if not _raw_url:
+    raise RuntimeError(
+        "DATABASE_URL environment variable is required. "
+        "Example: export DATABASE_URL=postgresql://user:pass@localhost:5432/overwatch_db"
+    )
+DATABASE_URL = (
+    _raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if _raw_url.startswith("postgresql://")
+    else _raw_url
 )
-
-# Convert to async URL if needed
-if DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 # Create async engine
 engine = create_async_engine(
